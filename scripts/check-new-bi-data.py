@@ -25,10 +25,10 @@ new_df = pd.read_csv('new.csv')
 
 first_numeric_colname = 'BI cases'
 last_numeric_colname = 'Total Individuals not fully vaccinated'
-first_numeric_col = list(existing_df.columns).index(first_numeric_colname)
-last_numeric_col = list(existing_df.columns).index(last_numeric_colname)
+first_numeric_col = list(new_df.columns).index(first_numeric_colname)
+last_numeric_col = list(new_df.columns).index(last_numeric_colname)
 
-possible_numeric_cols = list(existing_df.columns[first_numeric_col:last_numeric_col+1])
+possible_numeric_cols = list(new_df.columns[first_numeric_col:last_numeric_col+1])
 
 # some of these are percent columns and should be read as such
 percent_cols = [x for x in possible_numeric_cols if 'percent' in x]
@@ -38,16 +38,24 @@ numeric_cols = [x for x in possible_numeric_cols if 'percent' not in x]
 for col in numeric_cols:
     for df in [new_df, existing_df]:
         # if the column isn't already a float, replace strings and make numeric
+        if col not in dict(df.dtypes):
+            continue
         if dict(df.dtypes)[col] == object:
             df[col] = df[col].str.replace(',', '')
-            df[col] = pd.to_numeric(df[col])
+            # also replace "X" characters with the number 1: they're generally placeholders
+            df[col] = df[col].str.replace('X', '1')
+            df[col] = pd.to_numeric(df[col])  # convert to numeric
 
 def p2f(x):
     return np.nan if pd.isnull(x) else float(x.strip('%'))/100
 
 for col in percent_cols:
-    new_df[col] = new_df[col].apply(p2f)
-    existing_df[col] = existing_df[col].apply(p2f)
+    for df in [new_df, existing_df]:
+        if col not in dict(df.dtypes):
+            continue
+        if dict(df.dtypes)[col] == object:
+            df[col] = df[col].str.replace('X', '1')
+        df[col] = df[col].apply(p2f)
 
 
 ###########################################################################################
@@ -66,12 +74,31 @@ for state in states_dropped:
 for state in states_added:
     print('%s,State added' % state)
 
+# Check any columns that were either dropped or added
+old_columns = set(existing_df.columns)
+new_columns = set(new_df.columns)
+
+columns_added = new_columns.difference(old_columns)
+for col in columns_added:
+    if col.startswith('Unnamed'):
+        continue
+    print('All,New column added,%s' % col)
+
+columns_removed = old_columns.difference(new_columns)
+for col in columns_removed:
+    if col.startswith('Unnamed'):
+        continue
+    print('All,Column removed,%s' % col)
+
+# Check specific data for each state
 for state in existing_df.Abbr:
     new_row = new_df.loc[new_df.Abbr == state]
     old_row = existing_df.loc[existing_df.Abbr == state]
     state = old_row.Abbr.iloc[0]
     
     for col in numeric_cols:
+        if not (col in old_row and col in new_row):
+            continue
         old_value = old_row[col].iloc[0]
         new_value = new_row[col].iloc[0]
 
@@ -103,6 +130,8 @@ for state in existing_df.Abbr:
             
     # Do new metric/lost metric checks for percentage columns, but don't compare numbers
     for col in percent_cols:
+        if not (col in old_row and col in new_row):
+            continue
         old_value = old_row[col].iloc[0]
         new_value = new_row[col].iloc[0]
         
